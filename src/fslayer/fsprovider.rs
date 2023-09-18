@@ -2,9 +2,9 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::borrow::Borrow;
 use std::collections::HashMap;
+use std::ops::Deref;
 
-
-pub fn cannonicalise<'a>(comps: impl Iterator<Item=&'a str>) -> Vec<&'a str>{
+pub fn cannonicalise<'a>(comps: impl Iterator<Item = &'a str>) -> Vec<&'a str> {
     let mut stack = Vec::new();
     for t in comps.map(&str::trim) {
         if t.is_empty() {
@@ -29,27 +29,33 @@ pub struct FMeta {
 pub enum FType {
     #[default]
     Folder,
-    File
+    File,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct FTree {
-    //should 
+    //should
     meta: FMeta,
     sub_entries: HashMap<String, FTree>,
-    entry_type: FType
+    entry_type: FType,
 }
 
 impl FTree {
-
     pub fn new_folder(name: &str) -> FTree {
-        FTree { meta: FMeta { name: name.to_string() }, ..Default::default() }
+        FTree {
+            meta: FMeta {
+                name: name.to_string(),
+            },
+            ..Default::default()
+        }
     }
 
-    pub fn traverse<'a>(&self, mut comps: impl Iterator<Item=&'a str>) -> Option<&FTree> {
-        //impl lc algo
+    pub fn traverse<'a>(
+        &self,
+        comps: &mut impl Iterator<Item = impl Deref<Target = &'a str>>,
+    ) -> Option<&FTree> {
         if let Some(t) = comps.next() {
-            if let Some(q) = self.sub_entries.get(t) {
+            if let Some(q) = self.sub_entries.get(*t) {
                 q.traverse(comps)
             } else {
                 None
@@ -59,52 +65,75 @@ impl FTree {
         }
     }
 
-    pub fn traverse_mut<'a>(&mut self, comps: impl Iterator<Item = &'a str>) -> &mut FTree {
-        //impl lc algo
-        for t in comps {
-            println!("{}", t)
+    pub fn traverse_mut<'a>(
+        &mut self,
+        mut comps: impl Iterator<Item = &'a str>,
+    ) -> Option<&mut FTree> {
+        if let Some(t) = comps.next() {
+            if let Some(q) = self.sub_entries.get_mut(t) {
+                q.traverse_mut(comps)
+            } else {
+                None
+            }
+        } else {
+            Some(self)
         }
-        self
     }
 
     pub fn flatten(&self) -> FlatFTree {
-        FlatFTree { meta: &self.meta, sub_entries: self.sub_entries.values().map(|f| f.into()).collect(), entry_type: self.entry_type }
+        FlatFTree {
+            meta: &self.meta,
+            sub_entries: self.sub_entries.values().map(|f| f.into()).collect(),
+            entry_type: self.entry_type,
+        }
     }
 
     pub fn add_file(&mut self, fname: &str) {
-        self.sub_entries.insert(fname.to_string(), FTree {
-            meta: FMeta { name: fname.to_string() },
-            entry_type: FType::File,
-            ..Default::default()
-        });
+        self.sub_entries.insert(
+            fname.to_string(),
+            FTree {
+                meta: FMeta {
+                    name: fname.to_string(),
+                },
+                entry_type: FType::File,
+                ..Default::default()
+            },
+        );
     }
 
     pub fn add_folder(&mut self, fname: &str) -> &mut FTree {
-        self.sub_entries.insert(fname.to_string(), FTree {
-            meta: FMeta { name: fname.to_string() },
-            ..Default::default()
-        });
-        self.sub_entries.get_mut(fname).unwrap()    
+        self.sub_entries.insert(
+            fname.to_string(),
+            FTree {
+                meta: FMeta {
+                    name: fname.to_string(),
+                },
+                ..Default::default()
+            },
+        );
+        self.sub_entries.get_mut(fname).unwrap()
     }
-
 }
 
 #[derive(Debug, Serialize)]
 pub struct FlatFTree<'a> {
     meta: &'a FMeta,
     sub_entries: Vec<FlatFItem<'a>>,
-    entry_type: FType
+    entry_type: FType,
 }
 
 #[derive(Debug, Serialize)]
 pub struct FlatFItem<'a> {
     name: &'a str,
-    entry_type: FType
+    entry_type: FType,
 }
 
 impl<'a> From<&'a FTree> for FlatFItem<'a> {
     fn from(value: &'a FTree) -> Self {
-        Self { name: &value.meta.name, entry_type: value.entry_type }
+        Self {
+            name: &value.meta.name,
+            entry_type: value.entry_type,
+        }
     }
 }
 

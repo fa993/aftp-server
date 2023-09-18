@@ -1,5 +1,11 @@
 use fslayer::fsprovider::cannonicalise;
-use rocket::{serde::json::Json, State, http::uri::{Segments, fmt::Path}, fs::{NamedFile, FileServer}, response::status::NotFound};
+use rocket::{
+    fs::{FileServer, NamedFile},
+    http::uri::{fmt::Path, Segments},
+    response::status::NotFound,
+    serde::json::Json,
+    State,
+};
 
 use crate::fslayer::fsprovider::{FTree, FlatFTree};
 
@@ -14,9 +20,12 @@ async fn index() -> Result<NamedFile, std::io::Error> {
 }
 
 #[get("/<path..>")]
-fn get_entry<'a>(path: Segments<Path>, st: &'a State<FTree>) -> Result<Json<FlatFTree<'a>>, NotFound<String>> {
+fn get_entry<'a>(
+    path: Segments<Path>,
+    st: &'a State<FTree>,
+) -> Result<Json<FlatFTree<'a>>, NotFound<String>> {
     let pa = cannonicalise(path);
-    let res = st.traverse(pa.clone().into_iter());
+    let res = st.traverse(&mut pa.iter());
     if let Some(tree) = res {
         Ok(Json(tree.flatten()))
     } else {
