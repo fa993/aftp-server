@@ -17,12 +17,14 @@ pub fn cannonicalise<'a>(comps: impl Iterator<Item = &'a str>) -> Vec<&'a str> {
             stack.push(t);
         }
     }
-    return stack;
+    stack
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct FMeta {
     name: String,
+    //In prod it should be file_path
+    content: String,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone, Copy)]
@@ -30,6 +32,16 @@ pub enum FType {
     #[default]
     Folder,
     File,
+}
+
+impl FType {
+    pub fn is_folder(&self) -> bool {
+        matches!(self, FType::Folder)
+    }
+
+    pub fn is_file(&self) -> bool {
+        matches!(self, FType::File)
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -41,15 +53,6 @@ pub struct FTree {
 }
 
 impl FTree {
-    pub fn new_folder(name: &str) -> FTree {
-        FTree {
-            meta: FMeta {
-                name: name.to_string(),
-            },
-            ..Default::default()
-        }
-    }
-
     pub fn traverse<'a>(
         &self,
         comps: &mut impl Iterator<Item = impl Deref<Target = &'a str>>,
@@ -83,17 +86,46 @@ impl FTree {
     pub fn flatten(&self) -> FlatFTree {
         FlatFTree {
             meta: &self.meta,
-            sub_entries: self.sub_entries.values().map(|f| f.into()).collect(),
+            sub_entries: self.sub_entries.values().map(Into::into).collect(),
             entry_type: self.entry_type,
         }
     }
 
-    pub fn add_file(&mut self, fname: &str) {
+    pub fn get_content(&self) -> FItemContent {
+        FItemContent {
+            contents: &self.meta.content,
+            meta: &self.meta,
+            entry_type: self.entry_type,
+        }
+    }
+
+    pub fn is_file(&self) -> bool {
+        self.entry_type.is_file()
+    }
+
+    pub fn is_folder(&self) -> bool {
+        self.entry_type.is_folder()
+    }
+}
+
+impl FTree {
+    pub fn new_folder(name: &str) -> FTree {
+        FTree {
+            meta: FMeta {
+                name: name.to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    pub fn add_file(&mut self, fname: &str, contents: &str) {
         self.sub_entries.insert(
             fname.to_string(),
             FTree {
                 meta: FMeta {
                     name: fname.to_string(),
+                    content: contents.to_string(),
                 },
                 entry_type: FType::File,
                 ..Default::default()
@@ -107,6 +139,7 @@ impl FTree {
             FTree {
                 meta: FMeta {
                     name: fname.to_string(),
+                    ..Default::default()
                 },
                 ..Default::default()
             },
@@ -135,6 +168,13 @@ impl<'a> From<&'a FTree> for FlatFItem<'a> {
             entry_type: value.entry_type,
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+pub struct FItemContent<'a> {
+    meta: &'a FMeta,
+    contents: &'a str,
+    entry_type: FType,
 }
 
 pub struct PathSegment {

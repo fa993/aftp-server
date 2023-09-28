@@ -1,4 +1,4 @@
-use fslayer::fsprovider::cannonicalise;
+use fslayer::fsprovider::{cannonicalise, FItemContent};
 use rocket::{
     fs::{FileServer, NamedFile},
     http::uri::{fmt::Path, Segments},
@@ -8,7 +8,7 @@ use rocket::{
 };
 
 use crate::fslayer::fsprovider::{FTree, FlatFTree};
-
+use either::Either::{self, Left, Right};
 pub mod fslayer;
 
 #[macro_use]
@@ -23,11 +23,15 @@ async fn index() -> Result<NamedFile, std::io::Error> {
 fn get_entry<'a>(
     path: Segments<Path>,
     st: &'a State<FTree>,
-) -> Result<Json<FlatFTree<'a>>, NotFound<String>> {
+) -> Result<Either<Json<FItemContent<'a>>, Json<FlatFTree<'a>>>, NotFound<String>> {
     let pa = cannonicalise(path);
     let res = st.traverse(&mut pa.iter());
     if let Some(tree) = res {
-        Ok(Json(tree.flatten()))
+        if tree.is_file() {
+            Ok(Left(Json(tree.get_content())))
+        } else {
+            Ok(Right(Json(tree.flatten())))
+        }
     } else {
         Err(NotFound(format!("No entry at path: {} ", pa.join("/"))))
     }
@@ -36,12 +40,12 @@ fn get_entry<'a>(
 #[launch]
 fn rocket() -> _ {
     let mut state = FTree::new_folder("root");
-    state.add_file("hello.txt");
+    state.add_file("hello.txt", "Hello World!");
     let mut sclv = state.add_folder("I");
-    sclv.add_file("ok");
+    sclv.add_file("ok", "GG");
     sclv = sclv.add_folder("am");
     sclv = sclv.add_folder("thor");
-    sclv.add_file("success.txt");
+    sclv.add_file("success.txt", "Congratulations!");
     let uri = uri!("/a/b/.././c");
     for t in uri.path().segments() {
         println!("{t}")
