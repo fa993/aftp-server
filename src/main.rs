@@ -1,3 +1,5 @@
+use std::fs::File;
+
 use fslayer::fsprovider::{cannonicalise, FItemContent};
 use rocket::{
     fs::{FileServer, NamedFile},
@@ -8,7 +10,6 @@ use rocket::{
 };
 
 use crate::fslayer::fsprovider::{FTree, FlatFTree};
-use either::Either::{self, Left, Right};
 pub mod fslayer;
 
 #[macro_use]
@@ -23,18 +24,45 @@ async fn index() -> Result<NamedFile, std::io::Error> {
 fn get_entry<'a>(
     path: Segments<Path>,
     st: &'a State<FTree>,
-) -> Result<Either<Json<FItemContent<'a>>, Json<FlatFTree<'a>>>, NotFound<String>> {
+) -> Result<Json<FlatFTree<'a>>, NotFound<String>> {
+    let pa = cannonicalise(path);
+    let res = st.traverse(&mut pa.iter());
+    if let Some(tree) = res {
+        Ok(Json(tree.flatten()))
+    } else {
+        Err(NotFound(format!("No entry at path: {} ", pa.join("/"))))
+    }
+}
+
+#[get("/<path..>")]
+fn get_raw<'a>(
+    path: Segments<Path>,
+    st: &'a State<FTree>,
+) -> Result<File, NotFound<String>> {
     let pa = cannonicalise(path);
     let res = st.traverse(&mut pa.iter());
     if let Some(tree) = res {
         if tree.is_file() {
-            Ok(Left(Json(tree.get_content())))
-        } else {
-            Ok(Right(Json(tree.flatten())))
-        }
-    } else {
-        Err(NotFound(format!("No entry at path: {} ", pa.join("/"))))
+        //    return Ok(Json(tree.get_content()));
+           return Ok(File::open("dist/hello.txt").unwrap());
+        } 
     }
+    return Err(NotFound(format!("No content at path: {} ", pa.join("/"))));
+}
+
+#[get("/<path..>")]
+fn get_collab<'a>(
+    path: Segments<Path>,
+    st: &'a State<FTree>,
+) -> Result<Json<FItemContent<'a>>, NotFound<String>> {
+    let pa = cannonicalise(path);
+    let res = st.traverse(&mut pa.iter());
+    if let Some(tree) = res {
+        if tree.is_file() {
+           return Ok(Json(tree.get_content()));
+        } 
+    }
+    return Err(NotFound(format!("No content at path: {} ", pa.join("/"))));
 }
 
 #[launch]
@@ -54,5 +82,7 @@ fn rocket() -> _ {
         .manage(state)
         .mount("/f", routes![index])
         .mount("/api", routes![get_entry])
+        .mount("/raw", routes![get_raw])
+        .mount("/collab", routes![get_collab])
         .mount("/", FileServer::from("dist/"))
 }
