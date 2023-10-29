@@ -6,7 +6,7 @@ use std::sync::Arc;
 use rocket::tokio::sync::RwLock;
 
 use crate::fslayer::afs::{FNode, FSError, FSHandle, FTree, FType};
-use crate::fslayer::native::hashmapfs::InMemoryFSHandle;
+use crate::fslayer::native::inmemoryfs::InMemoryFSHandle;
 use fslayer::api::{OwnedFlatFItem, OwnedFlatFTree};
 use rocket::data::ToByteUnit;
 use rocket::http::uri::fmt::Path;
@@ -31,11 +31,14 @@ extern crate rocket;
 type RwTree = Arc<RwLock<FTree>>;
 
 fn reflect_tree(value: &FTree) -> Result<(), serde_json::Error> {
+    let mut f = OpenOptions::new()
+        .write(true)
+        .open("fsindex.json")
+        .expect("Should be present");
+    f.set_len(0).expect("Clear File Length");
+    f.flush().expect("Flush Operation");
     serde_json::to_writer(
-        OpenOptions::new()
-            .write(true)
-            .open("fsindex.json")
-            .expect("Should be present"),
+        f,
         value,
     )
 }
@@ -104,15 +107,46 @@ async fn create_entry(
         if file_str_res.is_err() {
             return Err(FSError::OperationFailed("Persistence Failed".to_string()));
         }
+    }
 
-        let tree = manager.inner.read().await;
+    let tree = manager.inner.read().await;
 
-        if reflect_tree(&tree).is_err() {
-            return Err(FSError::OperationFailed("Persistence Failed".to_string()));
-        }
+    if reflect_tree(&tree).is_err() {
+        return Err(FSError::OperationFailed("Persistence Failed".to_string()));
     }
 
     Ok(Json(res.into()))
+}
+
+#[delete("/<path..>")]
+async fn delete_entry(path: Segments<'_, Path>, st: &State<RwTree>) -> Result<(), FSError> {
+    let pa = cannonicalise(path);
+    let mut manager: InMemoryFSHandle = st.deref().clone().into();
+    manager.change_head(pa.as_slice()).await?;
+    let del_dir = manager.delete().await?;
+    let del_files = del_dir
+        .flatten()
+        .iter()
+        .filter_map(|f| {
+            if let FType::File(x) = &f.f_type {
+                Some(x.clone())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    for i in del_files {
+        std::fs::remove_file(i)
+            .map_err(|_| FSError::OperationFailed("Delete Failed".to_string()))?;
+    }
+
+    let tree = manager.inner.read().await;
+
+    if reflect_tree(&tree).is_err() {
+        return Err(FSError::OperationFailed("Persistence Failed".to_string()));
+    }
+
+    Ok(())
 }
 
 #[get("/<path..>")]
@@ -166,7 +200,7 @@ fn rocket() -> _ {
     rocket::build()
         .manage(state)
         .mount("/f", routes![index])
-        .mount("/api", routes![get_entry, create_entry])
+        .mount("/api", routes![get_entry, create_entry, delete_entry])
         .mount("/raw", routes![get_raw])
         // .mount("/collab", routes![get_collab])
         .mount("/", FileServer::from("dist/"))

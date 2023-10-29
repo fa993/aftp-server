@@ -1,1 +1,1 @@
-pub mod hashmapfs;
+pub mod inmemoryfs;

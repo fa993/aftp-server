@@ -69,8 +69,20 @@ impl FTree {
         }
         Some(cur_root)
     }
-}
 
+    pub fn flatten(&self) -> Vec<FNode> {
+        let mut res = Vec::new();
+        self.flatten_inner(&mut res);
+        res
+    }
+
+    fn flatten_inner(&self, agg: &mut Vec<FNode>) {
+        agg.push(self.inner.clone());
+        for i in &self.children {
+            i.flatten_inner(agg);
+        }
+    }
+}
 
 impl From<FTree> for OwnedFlatFItem {
     fn from(value: FTree) -> Self {
@@ -103,6 +115,8 @@ pub trait FSHandle {
     async fn change_head(&mut self, path: &[&str]) -> Result<(), FSError>;
 
     async fn create_entry(&mut self, entry: FNode) -> Result<FTree, FSError>;
+
+    async fn delete(&mut self) -> Result<FTree, FSError>;
 
     //TODO delete_entry
 }

@@ -100,4 +100,28 @@ impl FSHandle for InMemoryFSHandle {
             Ok(child)
         }
     }
+
+    async fn delete(&mut self) -> Result<FTree, FSError> {
+        if self.current_head.is_empty() {
+            return Err(FSError::OperationFailed(
+                "Cannot Delete Root folder".to_string(),
+            ));
+        }
+        let path = self.head();
+        let del_dir = path[path.len() - 1];
+        let path = &path[0..path.len() - 1];
+
+        let mut root = self.inner.write().await;
+        let cur_root = root
+            .traverse_to_path_mut(path)
+            .ok_or(FSError::PathNotFound)?;
+        let del_root = cur_root
+            .children
+            .iter()
+            .find(|f| f.inner.name == del_dir)
+            .ok_or(FSError::PathNotFound)?
+            .clone();
+        cur_root.children.retain(|f| f.inner.name != del_dir);
+        Ok(del_root)
+    }
 }
