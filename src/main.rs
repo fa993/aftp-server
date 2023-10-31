@@ -73,6 +73,10 @@ async fn create_entry(
     } else {
         let mut new_file_name = Uuid::new_v4().to_string();
 
+        if pa.len() == 0 {
+            return Err(FSError::OperationFailed("Cannot overwrite root folder".to_string()));
+        }
+        
         let file_name_in_path = pa[pa.len() - 1];
         let extension_position = utils::rfind_utf8(file_name_in_path, '.');
 
