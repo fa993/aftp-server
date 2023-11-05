@@ -1,7 +1,7 @@
 use crate::fslayer::api::{FItemType, FMeta, OwnedFlatFItem, OwnedFlatFTree};
 use rocket::http::Status;
 use rocket::response::{status, Responder};
-use rocket::Request;
+use rocket::{error, Request};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -127,6 +127,8 @@ pub enum FSError {
     PathNotFound,
     #[error("Operation Failed: {0}")]
     OperationFailed(String),
+    #[error("Unauthorized")]
+    Forbidden,
 }
 
 impl<'r, 'o: 'r> Responder<'r, 'o> for FSError {
@@ -138,6 +140,7 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for FSError {
                 format!("Operation Failed: {x}"),
             )
             .respond_to(request),
+            FSError::Forbidden => status::Forbidden::<()>(None).respond_to(request),
         }
     }
 }

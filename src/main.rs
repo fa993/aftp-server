@@ -1,8 +1,10 @@
+use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, ErrorKind, Write};
 use std::ops::Deref;
 use std::sync::Arc;
 
+use auth::id_auth::ClientId;
 use rocket::tokio::sync::RwLock;
 
 use crate::fslayer::afs::{FNode, FSError, FSHandle, FTree, FType};
@@ -10,6 +12,7 @@ use crate::fslayer::native::inmemoryfs::InMemoryFSHandle;
 use fslayer::api::{OwnedFlatFItem, OwnedFlatFTree};
 use rocket::data::ToByteUnit;
 use rocket::http::uri::fmt::Path;
+use rocket::http::Method;
 use rocket::serde::json::serde_json;
 use rocket::{
     fs::{FileServer, NamedFile},
@@ -17,11 +20,13 @@ use rocket::{
     serde::json::Json,
     Data, State,
 };
+use rocket_cors::{AllowedOrigins, CorsOptions};
 use utils::cannonicalise;
 use uuid::Uuid;
 
 const UPLOAD_DIR: &str = "upload";
 
+pub mod auth;
 pub mod fslayer;
 pub mod utils;
 
@@ -37,10 +42,7 @@ fn reflect_tree(value: &FTree) -> Result<(), serde_json::Error> {
         .expect("Should be present");
     f.set_len(0).expect("Clear File Length");
     f.flush().expect("Flush Operation");
-    serde_json::to_writer(
-        f,
-        value,
-    )
+    serde_json::to_writer(f, value)
 }
 
 #[get("/<_..>")]
@@ -62,10 +64,16 @@ async fn get_entry(
 
 #[put("/<path..>", data = "<item>")]
 async fn create_entry(
+    auth: ClientId,
+    allowed_addrs: &State<HashSet<String>>,
     path: Segments<'_, Path>,
     st: &State<RwTree>,
     mut item: Data<'_>,
 ) -> Result<Json<OwnedFlatFItem>, FSError> {
+    if !allowed_addrs.contains(&auth.0) {
+        return Err(FSError::Forbidden);
+    }
+
     let pa = cannonicalise(path);
     let f_type = if item.peek(1).await.is_empty() {
         //treat entry as folder
@@ -73,10 +81,12 @@ async fn create_entry(
     } else {
         let mut new_file_name = Uuid::new_v4().to_string();
 
-        if pa.len() == 0 {
-            return Err(FSError::OperationFailed("Cannot overwrite root folder".to_string()));
+        if pa.is_empty() {
+            return Err(FSError::OperationFailed(
+                "Cannot overwrite root folder".to_string(),
+            ));
         }
-        
+
         let file_name_in_path = pa[pa.len() - 1];
         let extension_position = utils::rfind_utf8(file_name_in_path, '.');
 
@@ -123,7 +133,16 @@ async fn create_entry(
 }
 
 #[delete("/<path..>")]
-async fn delete_entry(path: Segments<'_, Path>, st: &State<RwTree>) -> Result<(), FSError> {
+async fn delete_entry(
+    path: Segments<'_, Path>,
+    auth: ClientId,
+    allowed_addrs: &State<HashSet<String>>,
+    st: &State<RwTree>,
+) -> Result<(), FSError> {
+    if !allowed_addrs.contains(&auth.0) {
+        return Err(FSError::Forbidden);
+    }
+
     let pa = cannonicalise(path);
     let mut manager: InMemoryFSHandle = st.deref().clone().into();
     manager.change_head(pa.as_slice()).await?;
@@ -183,6 +202,8 @@ async fn get_raw<'a>(path: Segments<'a, Path>, st: &State<RwTree>) -> Result<Nam
 
 #[launch]
 fn rocket() -> _ {
+    let _ = dotenv::dotenv();
+
     std::fs::create_dir_all(UPLOAD_DIR).expect("Could not create upload dir");
     let index_file = File::open("fsindex.json");
     let index_tree = match index_file {
@@ -200,9 +221,34 @@ fn rocket() -> _ {
             panic!("Unknown error {index_file:?}")
         }
     };
-    let state = Arc::new(RwLock::new(index_tree));
+    let fs_state = Arc::new(RwLock::new(index_tree));
+
+    let cors = CorsOptions::default()
+        .allowed_origins(AllowedOrigins::all())
+        .allowed_methods(
+            vec![Method::Get, Method::Post, Method::Patch, Method::Delete]
+                .into_iter()
+                .map(From::from)
+                .collect(),
+        )
+        .allow_credentials(true)
+        .to_cors()
+        .expect("Could not setup CORS options");
+
+    let valid_mac_addresses = std::env::var("AFTP_ALLOWED_IDS").unwrap_or("".to_string());
+
+    let addresses = valid_mac_addresses
+        .split(',')
+        .map(|t| t.trim())
+        .map(|t| t.to_string())
+        .collect::<HashSet<_>>();
+
+    println!("Allowed Ids: {addresses:?}");
+
     rocket::build()
-        .manage(state)
+        .attach(cors)
+        .manage(fs_state)
+        .manage(addresses)
         .mount("/f", routes![index])
         .mount("/api", routes![get_entry, create_entry, delete_entry])
         .mount("/raw", routes![get_raw])
