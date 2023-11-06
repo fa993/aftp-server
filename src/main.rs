@@ -235,20 +235,20 @@ fn rocket() -> _ {
         .to_cors()
         .expect("Could not setup CORS options");
 
-    let valid_mac_addresses = std::env::var("AFTP_ALLOWED_IDS").unwrap_or("".to_string());
+    let valid_ids = std::env::var("AFTP_ALLOWED_IDS").unwrap_or("".to_string());
 
-    let addresses = valid_mac_addresses
+    let ids = valid_ids
         .split(',')
         .map(|t| t.trim())
         .map(|t| t.to_string())
         .collect::<HashSet<_>>();
 
-    println!("Allowed Ids: {addresses:?}");
+    println!("Allowed Ids: {ids:?}");
 
     rocket::build()
         .attach(cors)
         .manage(fs_state)
-        .manage(addresses)
+        .manage(ids)
         .mount("/f", routes![index])
         .mount("/api", routes![get_entry, create_entry, delete_entry])
         .mount("/raw", routes![get_raw])
