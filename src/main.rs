@@ -88,11 +88,8 @@ async fn create_entry(
         }
 
         let file_name_in_path = pa[pa.len() - 1];
-        let extension_position = utils::rfind_utf8(file_name_in_path, '.');
-
-        if let Some(pos) = extension_position {
-            new_file_name.push_str(&file_name_in_path[pos..]);
-        }
+        let extension = utils::extract_extension(file_name_in_path);
+        new_file_name.push_str(&extension);
 
         let file_path = std::path::Path::new(UPLOAD_DIR).join(new_file_name);
 
@@ -226,7 +223,7 @@ fn rocket() -> _ {
     let cors = CorsOptions::default()
         .allowed_origins(AllowedOrigins::all())
         .allowed_methods(
-            vec![Method::Get, Method::Post, Method::Patch, Method::Delete]
+            vec![Method::Get, Method::Post, Method::Patch, Method::Delete, Method::Put]
                 .into_iter()
                 .map(From::from)
                 .collect(),
