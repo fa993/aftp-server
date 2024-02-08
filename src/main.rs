@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use auth::id_auth::ClientId;
 use rocket::tokio::sync::RwLock;
+use rocket_seek_stream::SeekStream;
 
 use crate::fslayer::afs::{FNode, FSError, FSHandle, FTree, FType};
 use crate::fslayer::native::inmemoryfs::InMemoryFSHandle;
@@ -170,13 +171,13 @@ async fn delete_entry(
 }
 
 #[get("/<path..>")]
-async fn get_raw<'a>(path: Segments<'a, Path>, st: &State<RwTree>) -> Result<NamedFile, FSError> {
+async fn get_raw<'a>(path: Segments<'a, Path>, st: &State<RwTree>) -> Result<SeekStream<'a>, FSError> {
     let pa = cannonicalise(path);
     let mut manager: InMemoryFSHandle = st.deref().clone().into();
     manager.change_head(pa.as_slice()).await?;
     let res = manager.get().await?;
     if let FType::File(x) = res.f_type {
-        Ok(NamedFile::open(x).await.unwrap())
+        SeekStream::from_path(x).map_err(|_| FSError::OperationFailed("Error Serving Stream".to_string()))
     } else {
         Err(FSError::PathNotFound)
     }
